@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
@@ -29,11 +29,10 @@ type KeyValue struct {
 
 type MRWorker struct {
 	// expires_at    time.Time
-	id            int
-	mf            func(string, string) []KeyValue
-	rf            func(string, []string) string
-	task          Task
-	intermediates []string
+	id   int
+	mf   func(string, string) []KeyValue
+	rf   func(string, []string) string
+	task Task
 }
 
 // use ihash(key) % NReduce to choose the reduce
@@ -69,10 +68,10 @@ func Worker(mapf func(string, string) []KeyValue,
 		if task.status == Completed {
 			return
 		}
-
+		// Todo: use switch
 		if task.taskType == MapTask {
 			files, err := w.dealMapWork(task, nReduce)
-			w.intermediates = files
+			w.task.intermediates = files
 			if w.callMapTaskDone(files, err) {
 				return
 			}
@@ -168,13 +167,14 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	return false
 }
 
+// Todo: rename to doMap
 func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	filename := task.path
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("cannot open %v", filename))
 	}
-	content, err := ioutil.ReadAll(file)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		log.Fatalf("cannot read %v", filename)
 	}
@@ -203,8 +203,8 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	for _, kv := range kva {
 		idx := ihash(kv.Key)
 		writeFile := files[idx]
-		encoder := json.NewEncoder(writeFile)
-		err := encoder.Encode(&kv)
+		enc := json.NewEncoder(writeFile)
+		err := enc.Encode(&kv)
 		if err != nil {
 			return nil, err
 		}
@@ -220,7 +220,7 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	filenames := []string{}
 	for i, f := range files {
 		f.Close()
-		newPath := fmt.Sprintf("tmp/mr-%v-%v-%v", task.assignee, i)
+		newPath := fmt.Sprintf("tmp/mr-%v-%v-%v", w.id, task.id, i)
 		err := os.Rename(f.Name(), newPath)
 		if err != nil {
 			log.Fatalf("Failed to rename the tmp file, the old path is: %v", f.Name())
@@ -230,8 +230,24 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	return filenames, nil
 }
 
-func (w *MRWorker) dealReduceWork(task Task) {
-
+// Todo: rename to doReduce
+func (w *MRWorker) dealReduceWork(task Task, reduceID) error {
+	// get all intermediate files path
+	files := task.intermediates
+	for _, f := range files {
+		file, err := os.Open(f)
+		if err != nil {
+			return errors.New(fmt.Sprintf("failed open the intermediate file: %v", f))
+		}
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kva = append(kva, kv)
+		}
+	}
 }
 
 // func writeToFile(filename string, content []byte) error {
@@ -248,3 +264,5 @@ func (w *MRWorker) dealReduceWork(task Task) {
 // 		log.Fatal(err)
 // 	}
 // }
+
+// removeFiles() removes all intermediate files

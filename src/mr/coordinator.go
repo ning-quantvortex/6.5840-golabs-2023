@@ -31,6 +31,13 @@ type Coordinator struct {
 	// wc               chan Worker
 	// rNum is the number of reduce tasks
 	rNum int
+	// interMap maintains the locations of all intermediate files
+	interMap InterMap
+}
+
+type InterMap struct {
+	interMap map[int][]string
+	mu       sync.RWMutex
 }
 
 type Tasks struct {
@@ -41,11 +48,12 @@ type Tasks struct {
 type TaskType int
 type Status int
 type Task struct {
-	id       int
-	taskType TaskType
-	status   Status
-	assignee int
-	path     string
+	id            int
+	taskType      TaskType
+	status        Status
+	assignee      int
+	path          string
+	intermediates []string
 }
 
 // Your code here -- RPC handlers for the worker to call.

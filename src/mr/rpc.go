@@ -33,6 +33,13 @@ type MapTaskDoneReply struct {
 	ShouldExit bool
 }
 
+type ReduceTaskDoneArgs struct {
+}
+
+type ReduceTaskDoneReply struct {
+	ShouldExit bool
+}
+
 // Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name

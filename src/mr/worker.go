@@ -59,12 +59,12 @@ func Worker(mapf func(string, string) []KeyValue,
 			log.Println("the RPC call failed")
 			return
 		}
-		w.task = task
-		if task.assignee == 0 {
-			log.Println("failed to get the assignee")
+
+		if task.id == 0 {
+			log.Println("failed to get the task")
 			return
 		}
-		w.id = task.assignee
+		w.task = task
 
 		if task.status == Completed {
 			return
@@ -77,7 +77,10 @@ func Worker(mapf func(string, string) []KeyValue,
 				return
 			}
 		} else if task.taskType == ReduceTask {
-			// w.dealReduceWork(task)
+			w.dealReduceWork(task)
+			if w.callReduceTaskDone() {
+				return
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -111,6 +114,36 @@ func (w *MRWorker) callRequestTask() (Task, int, bool) {
 }
 
 func (w *MRWorker) callMapTaskDone(files []string, err error) bool {
+	args := Args{}
+
+	reply := MapTaskDoneReply{}
+	ok := call("Coordinator.MapTaskDone", &args, &reply)
+	if ok {
+		fmt.Printf("reply is: %v\n", reply)
+	} else {
+		fmt.Printf("call failed!\n")
+		return false
+	}
+	if reply.ShouldExit {
+		return true
+	}
+	return false
+}
+
+func (w *MRWorker) callReduceTaskDone() bool {
+	args := Args{}
+
+	reply := ReduceTaskDoneReply{}
+	ok := call("Coordinator.MapTaskDone", &args, &reply)
+	if ok {
+		fmt.Printf("reply is: %v\n", reply)
+	} else {
+		fmt.Printf("call failed!\n")
+		return false
+	}
+	if reply.ShouldExit {
+		return true
+	}
 	return false
 }
 
@@ -195,6 +228,10 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 		filenames = append(filenames, f.Name())
 	}
 	return filenames, nil
+}
+
+func (w *MRWorker) dealReduceWork(task Task) {
+
 }
 
 // func writeToFile(filename string, content []byte) error {

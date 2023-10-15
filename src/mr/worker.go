@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 )
@@ -186,7 +187,7 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	files := make([]*os.File, 0, nReduce)
 
 	for i := 0; i < nReduce; i++ {
-		path := fmt.Sprintf("tmp/mr-%v-%v-%v", task.assignee, i, os.Getegid())
+		path := fmt.Sprintf("tmp/mr-%v-%v-%v", task.id, i, w.id)
 		file, err := os.Create(path)
 		if err != nil {
 			log.Fatalf("Failed to create file for path: %v", path)
@@ -201,7 +202,7 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	sort.Sort(ByKey(kva))
 
 	for _, kv := range kva {
-		idx := ihash(kv.Key)
+		idx := ihash(kv.Key) % nReduce
 		writeFile := files[idx]
 		enc := json.NewEncoder(writeFile)
 		err := enc.Encode(&kv)
@@ -220,7 +221,7 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 	filenames := []string{}
 	for i, f := range files {
 		f.Close()
-		newPath := fmt.Sprintf("tmp/mr-%v-%v-%v", w.id, task.id, i)
+		newPath := fmt.Sprintf("tmp/mr-%v-%v", task.id, i)
 		err := os.Rename(f.Name(), newPath)
 		if err != nil {
 			log.Fatalf("Failed to rename the tmp file, the old path is: %v", f.Name())
@@ -231,9 +232,16 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 }
 
 // Todo: rename to doReduce
-func (w *MRWorker) dealReduceWork(task Task, reduceID) error {
+func (w *MRWorker) dealReduceWork(task Task, reduceID int) error {
 	// get all intermediate files path
-	files := task.intermediates
+	// files := task.intermediates
+	files, err := filepath.Glob(fmt.Sprintf("tmp/mr-*-%v", reduceID))
+	if err != nil {
+		return errors.New(fmt.Sprintf("reduce task can't find the intermediate files"))
+	}
+	// create a kv map to handle the same key and a list of values
+	kvMap := make(map[string][]string)
+	// Todo: find a way to reduce this n^2 time
 	for _, f := range files {
 		file, err := os.Open(f)
 		if err != nil {
@@ -245,9 +253,15 @@ func (w *MRWorker) dealReduceWork(task Task, reduceID) error {
 			if err := dec.Decode(&kv); err != nil {
 				break
 			}
-			kva = append(kva, kv)
+			kvMap[kv.Key] = append(kvMap[kv.Key], kv.Value)
 		}
 	}
+	writeToReduceFile(kvMap, reduceID)
+	return nil
+}
+
+func writeToReduceFile(kvMap map[string][]string, reduceID int) error {
+
 }
 
 // func writeToFile(filename string, content []byte) error {

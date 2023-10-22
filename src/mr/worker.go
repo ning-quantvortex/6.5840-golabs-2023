@@ -51,9 +51,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		w := MRWorker{
 			mf: mapf,
 			rf: reducef,
-			id: os.Getegid(),
+			id: os.Getgid(),
 		}
-
+		// Todo: request add retries
 		task, nReduce, ok := w.callRequestTask()
 		if !ok {
 			log.Println("the RPC call failed")
@@ -67,7 +67,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		w.task = task
 
 		if task.status == Completed {
-			return
+			continue
 		}
 		// Todo: use switch
 		if task.taskType == MapTask {
@@ -77,12 +77,12 @@ func Worker(mapf func(string, string) []KeyValue,
 				return
 			}
 		} else if task.taskType == ReduceTask {
-			w.dealReduceWork(task)
+			w.dealReduceWork(task, task.id)
 			if w.callReduceTaskDone() {
 				return
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
@@ -93,7 +93,7 @@ func (w *MRWorker) callRequestTask() (Task, int, bool) {
 
 	// declare an argument structure.
 	args := Args{
-		mrWorker: *w,
+		workerID: w.id,
 	}
 
 	// declare a reply structure.
@@ -114,7 +114,9 @@ func (w *MRWorker) callRequestTask() (Task, int, bool) {
 }
 
 func (w *MRWorker) callMapTaskDone(files []string, err error) bool {
-	args := Args{}
+	args := Args{
+		task: w.task,
+	}
 
 	reply := MapTaskDoneReply{}
 	ok := call("Coordinator.MapTaskDone", &args, &reply)
@@ -134,7 +136,7 @@ func (w *MRWorker) callReduceTaskDone() bool {
 	args := Args{}
 
 	reply := ReduceTaskDoneReply{}
-	ok := call("Coordinator.MapTaskDone", &args, &reply)
+	ok := call("Coordinator.ReduceTaskDone", &args, &reply)
 	if ok {
 		fmt.Printf("reply is: %v\n", reply)
 	} else {
@@ -199,7 +201,7 @@ func (w *MRWorker) dealMapWork(task Task, nReduce int) ([]string, error) {
 		// encoders = append(encoders, json.NewEncoder(buf))
 	}
 
-	sort.Sort(ByKey(kva))
+	// sort.Sort(ByKey(kva))
 
 	for _, kv := range kva {
 		idx := ihash(kv.Key) % nReduce
@@ -239,9 +241,12 @@ func (w *MRWorker) dealReduceWork(task Task, reduceID int) error {
 	if err != nil {
 		return errors.New(fmt.Sprintf("reduce task can't find the intermediate files"))
 	}
-	// create a kv map to handle the same key and a list of values
-	kvMap := make(map[string][]string)
+
 	// Todo: find a way to reduce this n^2 time
+	// Todo: use pointer *KeyValue to reduce the data copy
+	// var kvs []KeyValue
+	// Todo: create a kv map to handle the same key and a list of values
+	kvMap := make(map[string][]string)
 	for _, f := range files {
 		file, err := os.Open(f)
 		if err != nil {
@@ -254,15 +259,44 @@ func (w *MRWorker) dealReduceWork(task Task, reduceID int) error {
 				break
 			}
 			kvMap[kv.Key] = append(kvMap[kv.Key], kv.Value)
+			// the slice solution is deprecated
+			// kvs = append(kvs, kv)
 		}
 	}
-	writeToReduceFile(kvMap, reduceID)
+
+	keys := make([]string, 0)
+	for k := range kvMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	tmpFileName := fmt.Sprintf("mr-out-%v-%v", reduceID, os.Getgid())
+	tmpFile, err := os.CreateTemp("./", tmpFileName)
+	if err != nil {
+		return errors.New(fmt.Sprintf("failed to create the file: %v", tmpFileName))
+	}
+
+	for _, k := range keys {
+		v := w.rf(k, kvMap[k])
+		_, err := fmt.Fprintf(tmpFile, "%v %v", k, v)
+		if err != nil {
+			return errors.New(fmt.Sprintf("failed to write into file: %v", tmpFile.Name()))
+		}
+	}
+
+	// rename the tmp file
+	tmpFile.Close()
+	newFileName := fmt.Sprintf("mr-out-%v", reduceID)
+	err = os.Rename(tmpFile.Name(), newFileName)
+	if err != nil {
+		return errors.New(fmt.Sprintf("failed to rename output file to: %v", newFileName))
+	}
 	return nil
 }
 
-func writeToReduceFile(kvMap map[string][]string, reduceID int) error {
+// func writeToReduceFile(kvs []KeyValue, reduceID int) error {
 
-}
+// }
 
 // func writeToFile(filename string, content []byte) error {
 // 	// If the file doesn't exist, create it, or append to the file

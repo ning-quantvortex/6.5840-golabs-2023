@@ -17,16 +17,17 @@ import (
 //
 
 type Args struct {
-	mrWorker MRWorker
+	workerID int
 }
 
 type Reply struct {
 	Task
-	NReduce int
+	NReduce    int
+	ShouldExit bool
 }
 
 type MapTaskDoneArgs struct {
-	filenames []string
+	task Task
 }
 
 type MapTaskDoneReply struct {
@@ -34,6 +35,7 @@ type MapTaskDoneReply struct {
 }
 
 type ReduceTaskDoneArgs struct {
+	task Task
 }
 
 type ReduceTaskDoneReply struct {

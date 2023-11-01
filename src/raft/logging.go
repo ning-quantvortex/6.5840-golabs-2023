@@ -68,7 +68,7 @@ var visibleFlows = map[Flow]bool{
 
 type LogContext struct {
 	ServerID      int
-	Role          State
+	Role          Role
 	Term          int
 	Flow          Flow
 	NumGoroutines int

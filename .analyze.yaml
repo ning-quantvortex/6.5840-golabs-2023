@@ -1,0 +1,25 @@
+pipelines:
+  test:
+    - or:
+        - start[0-9]+\([0-9]+\)
+        - crash[0-9]+\([0-9]+\)
+        - connect\([0-9]+\)
+        - disconnect\([0-9]+\)
+        - one\([0-9]+\)
+        - Start\([0-9]+\)
+        - \[Test\]
+        - Passed
+        - 'panic: test timed out after'
+  kill:
+    - or:
+        - Kill enter
+        - Kill exit
+        - flow:Termination
+        - 'panic: test timed out after'
+  server-3-term-84:
+    - or:
+        - serverID:3
+    - or:
+        - term:84
+    - or:
+        - flow:LogReplication
